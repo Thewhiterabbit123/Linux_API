@@ -10,6 +10,7 @@
 #include <sys/epoll.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <signal.h>
 
 #define EPOLLSIZE 10
 #define PORT 5000
@@ -18,37 +19,20 @@
 #define TRUE 1
 #define FALSE 0
 
-// void daemonize() {
-//     pid_t pid;
-//     int fd1, fd2, fd0;
-//     umask(0);
-//     if ((pid = fork()) < 0) {
-//         perror("fork");
-//         exit(1);
-//     } else if (pid != 0) {
-//         exit(0);
-//     }
-//     setsid();
-
-//     if (chdir("/") < 0) {
-//         perror("chdir");
-//         exit(1);
-//     }
-    
-//     close(0);
-
-//     fd0 = open("/dev/null", O_RDWR);
-//     fd1 = dup(0);
-//     fd2 = dup(0);
-// }
+//to stop server on ctrl-c, del all the file descriptor and free all memory without still reachable
+static int cycle = 1;
+typedef void (*sighandler)(int);
+void brake(int c) {
+    cycle = 0;
+}
 
 
 struct clients {
-    int  write;
-    int  read;
-    char  data[BUFFSIZE];
+    int   write;          //pointer for ring buffer
+    int   read;           //pointer for ring buffer
+    char  data[BUFFSIZE]; //ring buffer to save data for slow clients
     int   fd;
-    int   unused;
+    int   unused;         //if we can't send data to client, unused = 0, when we have EPOLLOUT try to send again
     char  tmp_ip[IPSIZE];
 };
 
@@ -140,7 +124,7 @@ int writetosocket(int fd, struct clients* cl, char* buf, int n) {
 }
 
 int main() {
-   // daemonize();
+
     int fd = open("server.log", O_WRONLY | O_APPEND);
 
     if(fd < 0) {
@@ -176,7 +160,8 @@ int main() {
 
     int iterator = 0;
 
-    while(TRUE) {
+    while(cycle) {
+        signal(SIGINT,  (sighandler) brake); //CTRL-C
         int n = epoll_wait(epollfd,events,10,-1);
         for(int i = 0; i < n; i++) {
             if(sockfd == events[i].data.fd) {
@@ -236,6 +221,7 @@ int main() {
             }
         }
     }
+    printf("\b\bServer stop. All ok\n");
     free(cl);
     close(sockfd);
     close(fd);
